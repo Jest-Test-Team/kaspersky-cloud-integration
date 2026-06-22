@@ -45,6 +45,32 @@ The KSC Open API is an HTTP+JSON API (not JSON-RPC). Each method is invoked with
 
 The generic `POST /api/ksc/call` proxy only accepts an allow-list of read-only/session methods (see `kscReadOnlyMethods` in `backend/ksc.go`); mutating methods (e.g. `HostGroup.RemoveHost`) are rejected with HTTP 403. Credentials live only in the backend and are sent server-side. Upstream `PxgError` and non-2xx responses are surfaced with their upstream status without leaking the configured token.
 
+### Where to get the full OpenAPI/Swagger spec for the cloud workspace
+
+There is **no anonymous public Swagger/OpenAPI** for Kaspersky Endpoint Security Cloud / Kaspersky Next. Probing `https://s405.cloud.kaspersky.com:8080` shows:
+
+- The static, human-readable reference guides (no "Try it out") are on Kaspersky Support:
+  - KSC Open API: https://support.kaspersky.com/help/KSC/15.2/KSCAPI/ (this integration's contract)
+  - KES Web API: https://support.kaspersky.com/help/KESWin/12.8/RestAPI/REST_API_doc.html
+  - Threat Intelligence Portal API: https://opentip.kaspersky.com/Help/Doc_data/WorkingWithAPI.htm
+- The live spec endpoints exist on the gateway but are **auth-gated**: `GET /api/v1.0/docs/openapi.json`, `/api/.../swagger.json`, `/api/docs` all return the same `401 credentials_required`. They become retrievable only with a valid authenticated session, after which the JSON can be imported into Postman / Swagger Editor.
+- A useful Go reference for the request/response structs is the community SDK **`github.com/pixfid/go-ksc`** (HostGroup, Tasks, ChunkAccessor, etc.) — faster to read than the static PDFs.
+
+### Cloud console authentication (important)
+
+The Kaspersky Next / ES Cloud console gateway does **not** accept `Authorization: Bearer <jwt>` or `X-KSC-Session` for its `/api/v1.0/` surface — both still return `credentials_required`. Its `express-jwt` layer uses a custom token extractor that reads the **authenticated browser session cookie (+ XSRF token)**. This is consistent with Kaspersky's position that Endpoint Security Cloud has no public programmatic management API.
+
+The backend therefore supports three credential modes, in priority order:
+
+| Env var | Header sent | Use case |
+|---|---|---|
+| `KSC_BEARER_TOKEN` | `Authorization: Bearer <token>` | OAuth/JWT (on-prem KSC, future cloud OAuth) |
+| `KSC_AUTHORIZATION` | `Authorization: <verbatim>` | On-prem KSC (`KSCT`/`KSCWT`/`KSCBasic`) |
+| `KSC_COOKIE` (+ `KSC_XSRF_TOKEN`) | `Cookie:` (+ `X-XSRF-TOKEN:`) | Cloud console browser session |
+| `KSC_SESSION` | `X-KSC-Session: <id>` | Existing KSC session id |
+
+To drive the live cloud workspace today: sign in at `https://s405.cloud.kaspersky.com/`, copy the request `Cookie` (and `X-XSRF-TOKEN`) header from an authenticated XHR in browser DevTools, set `KSC_COOKIE`/`KSC_XSRF_TOKEN`, and restart the backend.
+
 ### Console vs. Administration Server note
 
 The supplied hosted URL (`https://s405.cloud.kaspersky.com:8080`) is a KES Cloud Web Console. It answers KSC Open API calls with an OAuth-style `401 credentials_required` rather than the KSC `PxgError`/`PxgRetVal` contract, because the documented Open API is served by a KSC Administration Server (default port 13299) with the OpenAPI package installed. The backend therefore reaches upstream successfully and records the upstream authentication failure gracefully; point `KSC_BASE_URL` + `KSC_AUTHORIZATION` at a real Administration Server to retrieve live data.
