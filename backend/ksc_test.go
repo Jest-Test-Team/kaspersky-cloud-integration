@@ -144,6 +144,67 @@ func TestKSCReadOnlyAllowList(t *testing.T) {
 	}
 }
 
+func TestKSCBearerTokenAuth(t *testing.T) {
+	t.Setenv("KSC_AUTHORIZATION", "")
+	t.Setenv("KSC_SESSION", "")
+	t.Setenv("KSC_BEARER_TOKEN", "jwt-abc")
+	t.Setenv("KSC_BASE_URL", "https://s405.cloud.kaspersky.com:8080")
+
+	var seenAuth string
+	original := newKSCHTTPClient
+	newKSCHTTPClient = func(_ time.Duration) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			seenAuth = r.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"PxgRetVal":"ok"}`)),
+				Request:    r,
+			}, nil
+		})}
+	}
+	defer func() { newKSCHTTPClient = original }()
+
+	if !kscConfigured() {
+		t.Fatal("bearer token should mark KSC as configured")
+	}
+	if kscAuthScheme() != "Bearer" {
+		t.Fatalf("authScheme = %q, want Bearer", kscAuthScheme())
+	}
+	if _, err := kscCall(context.Background(), "HostGroup", "GetStaticInfo", map[string]interface{}{"pValues": []string{"x"}}); err != nil {
+		t.Fatalf("kscCall: %v", err)
+	}
+	if seenAuth != "Bearer jwt-abc" {
+		t.Fatalf("Authorization = %q, want 'Bearer jwt-abc'", seenAuth)
+	}
+}
+
+func TestDrainEventIterator(t *testing.T) {
+	configureKSC(t)
+	mock := &kscMockServer{t: t, responses: map[string]string{
+		"EventProcessing.GetRecordCount":  `{"PxgRetVal":1}`,
+		"EventProcessing.GetRecordRange":  `{"pParamsEvents":{"KLEVP_EVENT_RANGE_ARRAY":[{"GNRL_EA_DESCRIPTION":"Threat detected"}]}}`,
+		"EventProcessing.ReleaseIterator": `{}`,
+	}}
+	defer mock.install()()
+
+	items, err := drainEventIterator(context.Background(), "evt-1", 100)
+	if err != nil {
+		t.Fatalf("drainEventIterator: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d events, want 1", len(items))
+	}
+	released := false
+	for _, call := range mock.observed {
+		if call == "EventProcessing.ReleaseIterator" {
+			released = true
+		}
+	}
+	if !released {
+		t.Fatalf("event iterator not released; observed = %v", mock.observed)
+	}
+}
+
 func TestExtractChunkArrayShapes(t *testing.T) {
 	var decoded map[string]interface{}
 	_ = json.Unmarshal([]byte(`{"pChunk":{"KLCSP_ITERATOR_ARRAY":[{"a":1}]}}`), &decoded)

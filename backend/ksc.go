@@ -74,12 +74,54 @@ var kscReadOnlyMethods = map[string]bool{
 	"HostGroup.GetGroupInfoEx":        true,
 	"HostGroup.GetSubgroups":          true,
 	"HostGroup.GetDomains":            true,
+	"HostTagsApi.GetHostTags":         true,
+	"HostTagsApi.GetHostsTags":        true,
 	"LicenseKeys.EnumKeys":            true,
 	"LicenseKeys.GetKeyData":          true,
 	"ServerHierarchy.GetChildServers": true,
-	"ChunkAccessor.GetItemsCount":     true,
-	"ChunkAccessor.GetItemsChunk":     true,
-	"ChunkAccessor.Release":           true,
+	// Reports.
+	"ReportManager.EnumReportTypes":           true,
+	"ReportManager.GetReportTypeDetailedInfo": true,
+	"ReportManager.EnumReports":               true,
+	"ReportManager.GetReportInfo":             true,
+	"ReportManager.GetReportIds":              true,
+	"ReportManager.GetReportCommonData":       true,
+	"ReportManager.GetAvailableDashboards":    true,
+	// Generic server views (flat result-set iterators).
+	"SrvView.ResetIterator":   true,
+	"SrvView.GetRecordCount":  true,
+	"SrvView.GetRecordRange":  true,
+	"SrvView.ReleaseIterator": true,
+	// Software / hardware inventory.
+	"InventoryApi.GetInvProductsList": true,
+	"InventoryApi.GetInvPatchesList":  true,
+	"InventoryApi.GetObservedApps":    true,
+	"InventoryApi.GetHostInvProducts": true,
+	"InventoryApi.GetHostInvPatches":  true,
+	// Tasks (read-only).
+	"Tasks.GetTask":            true,
+	"Tasks.GetTaskData":        true,
+	"Tasks.GetTaskStatistics2": true,
+	"Tasks.GetTaskHistory":     true,
+	"Tasks.GetAllTasksOfHost":  true,
+	// Events.
+	"EventProcessingFactory.CreateEventProcessing":         true,
+	"EventProcessingFactory.CreateEventProcessing2":        true,
+	"EventProcessingFactory.CreateEventProcessingForHost":  true,
+	"EventProcessingFactory.CreateEventProcessingForHost2": true,
+	"EventProcessing.GetRecordCount":                       true,
+	"EventProcessing.GetRecordRange":                       true,
+	"EventProcessing.ReleaseIterator":                      true,
+	// Policies (read-only).
+	"Policy.GetPolicyData":                true,
+	"Policy.GetPolicyContents":            true,
+	"Policy.GetPoliciesForGroup":          true,
+	"Policy.GetEffectivePoliciesForGroup": true,
+	"Policy.GetOutbreakPolicies":          true,
+	// Chunk accessor (drives Find*/Enum* result sets).
+	"ChunkAccessor.GetItemsCount": true,
+	"ChunkAccessor.GetItemsChunk": true,
+	"ChunkAccessor.Release":       true,
 }
 
 var kscOperations = []kscOperation{
@@ -88,6 +130,9 @@ var kscOperations = []kscOperation{
 	{Name: "Administration groups", Class: "HostGroup", Method: "FindGroups", ApplicationPath: "GET /api/ksc/groups", Description: "Enumerate administration groups via a chunk accessor."},
 	{Name: "Managed hosts", Class: "HostGroup", Method: "FindHosts", ApplicationPath: "GET /api/ksc/hosts", Description: "Enumerate managed devices via a chunk accessor."},
 	{Name: "License keys", Class: "LicenseKeys", Method: "EnumKeys", ApplicationPath: "GET /api/ksc/licenses", Description: "Enumerate licenses installed on the server via a chunk accessor."},
+	{Name: "Software inventory", Class: "InventoryApi", Method: "GetInvProductsList", ApplicationPath: "GET /api/ksc/software", Description: "Acquire the software applications inventory across managed devices."},
+	{Name: "Reports", Class: "ReportManager", Method: "EnumReports", ApplicationPath: "GET /api/ksc/reports", Description: "Enumerate report definitions available on the server."},
+	{Name: "Recent events", Class: "EventProcessingFactory", Method: "CreateEventProcessing2", ApplicationPath: "GET /api/ksc/events", Description: "Read recent administration events via an event-processing iterator."},
 	{Name: "Generic method call", Class: "*", Method: "*", ApplicationPath: "POST /api/ksc/call", Description: "Invoke any allow-listed read-only KSC method directly."},
 }
 
@@ -113,7 +158,37 @@ func (e *kscError) Error() string {
 }
 
 func kscConfigured() bool {
-	return strings.TrimSpace(os.Getenv("KSC_AUTHORIZATION")) != "" || strings.TrimSpace(os.Getenv("KSC_SESSION")) != ""
+	return kscAuthorizationHeader() != "" || strings.TrimSpace(os.Getenv("KSC_SESSION")) != ""
+}
+
+// kscAuthorizationHeader resolves the Authorization header value. The Kaspersky
+// Next / Endpoint Security Cloud console gateway expects an OAuth Bearer JWT, so
+// KSC_BEARER_TOKEN is auto-prefixed with "Bearer ". On-prem KSC accepts the raw
+// scheme (KSCT/KSCWT/KSCBasic) supplied verbatim via KSC_AUTHORIZATION.
+func kscAuthorizationHeader() string {
+	if bearer := strings.TrimSpace(os.Getenv("KSC_BEARER_TOKEN")); bearer != "" {
+		if strings.HasPrefix(strings.ToLower(bearer), "bearer ") {
+			return bearer
+		}
+		return "Bearer " + bearer
+	}
+	return strings.TrimSpace(os.Getenv("KSC_AUTHORIZATION"))
+}
+
+// kscAuthScheme reports the auth scheme in use for status/diagnostics without
+// leaking the credential itself.
+func kscAuthScheme() string {
+	header := kscAuthorizationHeader()
+	if header == "" {
+		if strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" {
+			return "X-KSC-Session"
+		}
+		return "none"
+	}
+	if idx := strings.IndexByte(header, ' '); idx > 0 {
+		return header[:idx]
+	}
+	return "custom"
 }
 
 func kscBaseURL() string {
@@ -123,9 +198,10 @@ func kscBaseURL() string {
 func registerKSCRoutes(router *gin.Engine) {
 	router.GET("/api/ksc/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"product":    "Kaspersky Security Center 15.2 Open API",
+			"product":    "Kaspersky Next / Endpoint Security Cloud — KSC 15.2 Open API",
 			"baseUrl":    kscBaseURL(),
 			"configured": kscConfigured(),
+			"authScheme": kscAuthScheme(),
 			"transport":  "HTTP+JSON, POST /api/v1.0/Class.Method, TLS 1.2",
 			"operations": kscOperations,
 		})
@@ -199,6 +275,55 @@ func registerKSCRoutes(router *gin.Engine) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"count": len(items), "licenses": items})
+	})
+
+	router.GET("/api/ksc/software", func(c *gin.Context) {
+		result, err := kscCall(c.Request.Context(), "InventoryApi", "GetInvProductsList", map[string]interface{}{})
+		if err != nil {
+			writeKSCError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"software": pxgRetVal(result), "result": result})
+	})
+
+	router.GET("/api/ksc/reports", func(c *gin.Context) {
+		result, err := kscCall(c.Request.Context(), "ReportManager", "EnumReports", map[string]interface{}{})
+		if err != nil {
+			writeKSCError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"reports": pxgRetVal(result), "result": result})
+	})
+
+	router.GET("/api/ksc/events", func(c *gin.Context) {
+		create, err := kscCall(c.Request.Context(), "EventProcessingFactory", "CreateEventProcessing2",
+			map[string]interface{}{
+				"strDomainName": "",
+				"strHostName":   "",
+				"strProduct":    "",
+				"strVersion":    "",
+				"pFields2Return": []string{
+					"GNRL_EA_DESCRIPTION", "KLEVP_EVENT_TYPE", "event_type_display_name",
+					"GNRL_EA_SEVERITY", "hostname", "rise_time",
+				},
+				"pFields2Order": []interface{}{},
+				"eventType":     "",
+			})
+		if err != nil {
+			writeKSCError(c, err)
+			return
+		}
+		iterator := extractAccessor(create)
+		if iterator == "" {
+			c.JSON(http.StatusOK, gin.H{"count": 0, "events": []interface{}{}})
+			return
+		}
+		items, err := drainEventIterator(c.Request.Context(), iterator, kscLimit(c))
+		if err != nil {
+			writeKSCError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"count": len(items), "events": items})
 	})
 
 	router.POST("/api/ksc/call", func(c *gin.Context) {
@@ -296,6 +421,59 @@ func drainAccessor(ctx context.Context, accessor string, limit int) ([]interface
 	return items, nil
 }
 
+// drainEventIterator pages through an EventProcessing result-set. Unlike
+// ChunkAccessor, this family uses GetRecordCount / GetRecordRange(nStart, nEnd)
+// and ReleaseIterator, and returns records under KLEVP_EVENT_RANGE_ARRAY.
+func drainEventIterator(ctx context.Context, iterator string, limit int) ([]interface{}, error) {
+	defer func() {
+		_, _ = kscCall(ctx, "EventProcessing", "ReleaseIterator", map[string]interface{}{"strIteratorId": iterator})
+	}()
+
+	countResult, err := kscCall(ctx, "EventProcessing", "GetRecordCount", map[string]interface{}{"strIteratorId": iterator})
+	if err != nil {
+		return nil, err
+	}
+	total := limit
+	if n, ok := pxgRetVal(countResult).(float64); ok && int(n) < total {
+		total = int(n)
+	}
+
+	items := make([]interface{}, 0, total)
+	const page = 100
+	for start := 0; start < total; start += page {
+		end := start + page
+		if end > total {
+			end = total
+		}
+		chunk, err := kscCall(ctx, "EventProcessing", "GetRecordRange", map[string]interface{}{
+			"strIteratorId": iterator,
+			"nStart":        start,
+			"nEnd":          end,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, extractEventArray(chunk)...)
+	}
+	return items, nil
+}
+
+// extractEventArray pulls event records out of an EventProcessing.GetRecordRange
+// response (records live under pParamsEvents.KLEVP_EVENT_RANGE_ARRAY).
+func extractEventArray(chunk map[string]interface{}) []interface{} {
+	candidates := []interface{}{chunk["pParamsEvents"], chunk["PxgRetVal"], chunk}
+	for _, candidate := range candidates {
+		obj, ok := candidate.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if arr, ok := obj["KLEVP_EVENT_RANGE_ARRAY"].([]interface{}); ok {
+			return arr
+		}
+	}
+	return nil
+}
+
 // kscCall invokes a single KSC Open API method and returns the decoded JSON
 // response object.
 func kscCall(ctx context.Context, class, method string, params map[string]interface{}) (map[string]interface{}, error) {
@@ -323,7 +501,7 @@ func kscCall(ctx context.Context, class, method string, params map[string]interf
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if auth := strings.TrimSpace(os.Getenv("KSC_AUTHORIZATION")); auth != "" {
+	if auth := kscAuthorizationHeader(); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
 	if session := strings.TrimSpace(os.Getenv("KSC_SESSION")); session != "" {

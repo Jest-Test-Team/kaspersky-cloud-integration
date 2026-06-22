@@ -35,6 +35,7 @@ type KscStatus = {
   product: string;
   baseUrl: string;
   configured: boolean;
+  authScheme?: string;
   transport: string;
   operations: KscOperation[];
 };
@@ -46,6 +47,9 @@ const kscQueries: KscQuery[] = [
   { label: "Groups", path: "/api/ksc/groups" },
   { label: "Hosts", path: "/api/ksc/hosts" },
   { label: "Licenses", path: "/api/ksc/licenses" },
+  { label: "Software", path: "/api/ksc/software" },
+  { label: "Reports", path: "/api/ksc/reports" },
+  { label: "Events", path: "/api/ksc/events" },
 ];
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
@@ -236,9 +240,9 @@ export default function Home() {
           </div>
           <span className="types">{kscStatus?.operations.length ?? 0} OPERATIONS</span>
         </div>
-        <p className="configurationNote">{kscStatus?.transport ?? "HTTP+JSON over /api/v1.0/Class.Method"}</p>
+        <p className="configurationNote">{kscStatus?.transport ?? "HTTP+JSON over /api/v1.0/Class.Method"}{kscStatus?.authScheme ? ` · auth: ${kscStatus.authScheme}` : ""}</p>
         {!kscStatus?.configured && kscStatus ? (
-          <p className="configurationNote">Set <code>KSC_AUTHORIZATION</code> or <code>KSC_SESSION</code> on the backend to enable live calls.</p>
+          <p className="configurationNote">The cloud console gateway expects an OAuth Bearer JWT. Set <code>KSC_BEARER_TOKEN</code> (or <code>KSC_AUTHORIZATION</code>/<code>KSC_SESSION</code>) on the backend to enable live calls.</p>
         ) : null}
 
         <div className="lookupForm">

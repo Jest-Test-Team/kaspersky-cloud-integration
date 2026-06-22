@@ -46,6 +46,22 @@ KSC Groups Returns Data Or Graceful Error
 KSC Licenses Returns Data Or Graceful Error
     Assert KSC Endpoint    GET    /api/ksc/licenses    licenses
 
+KSC Software Inventory Returns Data Or Graceful Error
+    Assert KSC Endpoint    GET    /api/ksc/software    software
+
+KSC Reports Returns Data Or Graceful Error
+    Assert KSC Endpoint    GET    /api/ksc/reports    reports
+
+KSC Events Returns Data Or Graceful Error
+    Assert KSC Endpoint    GET    /api/ksc/events    events
+
+KSC Catalog Includes Cloud Read-Only Operations
+    ${response}=    Curl JSON    GET    /api/ksc/methods
+    ${methods}=    Evaluate    [op["method"] for op in $response["operations"]]
+    Should Contain    ${methods}    GetInvProductsList
+    Should Contain    ${methods}    EnumReports
+    Should Contain    ${methods}    CreateEventProcessing2
+
 *** Keywords ***
 Backend Must Be Available
     ${result}=    Run Process    curl    -fsS    ${BACKEND_URL}/healthz
