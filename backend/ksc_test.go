@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -202,6 +203,102 @@ func TestDrainEventIterator(t *testing.T) {
 	}
 	if !released {
 		t.Fatalf("event iterator not released; observed = %v", mock.observed)
+	}
+}
+
+func TestKSCManagedLoginAndReuse(t *testing.T) {
+	t.Setenv("KSC_AUTHORIZATION", "")
+	t.Setenv("KSC_SESSION", "")
+	t.Setenv("KSC_COOKIE", "")
+	t.Setenv("KSC_ACCESS_TOKEN", "")
+	t.Setenv("KSC_BEARER_TOKEN", "")
+	t.Setenv("KSC_LOGIN", "admin")
+	t.Setenv("KSC_PASSWORD", "secret")
+	t.Setenv("KSC_BASE_URL", "https://ksc.unit.test:13299")
+	kscSession.reset()
+
+	var startSessions, basicSeen, sessionHeaderSeen int
+	original := newKSCHTTPClient
+	newKSCHTTPClient = func(_ time.Duration) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			method := strings.TrimPrefix(r.URL.Path, kscAPIPrefix)
+			if method == "Session.StartSession" {
+				startSessions++
+				auth := r.Header.Get("Authorization")
+				// Must be KSCBasic with base64-encoded credentials.
+				if strings.HasPrefix(auth, "KSCBasic ") &&
+					strings.Contains(auth, base64.StdEncoding.EncodeToString([]byte("admin"))) &&
+					strings.Contains(auth, base64.StdEncoding.EncodeToString([]byte("secret"))) {
+					basicSeen++
+				}
+				return jsonResp(http.StatusOK, `{"PxgRetVal":"sess-42"}`, r), nil
+			}
+			if r.Header.Get("X-KSC-Session") == "sess-42" {
+				sessionHeaderSeen++
+			}
+			return jsonResp(http.StatusOK, `{"PxgRetVal":{"ok":true}}`, r), nil
+		})}
+	}
+	defer func() { newKSCHTTPClient = original; kscSession.reset() }()
+
+	if !kscConfigured() || kscAuthScheme() != "KSCBasic login (account/password)" {
+		t.Fatalf("login creds should configure KSCBasic mode; scheme=%q", kscAuthScheme())
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := kscCall(context.Background(), "HostGroup", "GetStaticInfo", map[string]interface{}{"pValues": []string{"x"}}); err != nil {
+			t.Fatalf("kscCall %d: %v", i, err)
+		}
+	}
+	if startSessions != 1 || basicSeen != 1 {
+		t.Fatalf("expected exactly one KSCBasic StartSession; got start=%d basic=%d", startSessions, basicSeen)
+	}
+	if sessionHeaderSeen != 2 {
+		t.Fatalf("expected cached session token reused twice; got %d", sessionHeaderSeen)
+	}
+}
+
+func TestKSCManagedLoginReauthOn403(t *testing.T) {
+	t.Setenv("KSC_AUTHORIZATION", "")
+	t.Setenv("KSC_SESSION", "")
+	t.Setenv("KSC_COOKIE", "")
+	t.Setenv("KSC_ACCESS_TOKEN", "")
+	t.Setenv("KSC_LOGIN", "admin")
+	t.Setenv("KSC_PASSWORD", "secret")
+	t.Setenv("KSC_BASE_URL", "https://ksc.unit.test:13299")
+	kscSession.reset()
+
+	var startSessions int
+	first := true
+	original := newKSCHTTPClient
+	newKSCHTTPClient = func(_ time.Duration) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if strings.HasSuffix(r.URL.Path, "Session.StartSession") {
+				startSessions++
+				return jsonResp(http.StatusOK, `{"PxgRetVal":"tok"}`, r), nil
+			}
+			if first {
+				first = false
+				return jsonResp(http.StatusForbidden, `{"PxgError":{"code":403,"module":"KLSTD","message":"expired"}}`, r), nil
+			}
+			return jsonResp(http.StatusOK, `{"PxgRetVal":1}`, r), nil
+		})}
+	}
+	defer func() { newKSCHTTPClient = original; kscSession.reset() }()
+
+	if _, err := kscCall(context.Background(), "HostGroup", "FindHosts", nil); err != nil {
+		t.Fatalf("kscCall: %v", err)
+	}
+	if startSessions != 2 {
+		t.Fatalf("expected re-login after 403; StartSession called %d times, want 2", startSessions)
+	}
+}
+
+func jsonResp(status int, body string, r *http.Request) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    r,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -161,7 +163,8 @@ func kscConfigured() bool {
 	return kscAuthorizationHeader() != "" ||
 		strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" ||
 		strings.TrimSpace(os.Getenv("KSC_COOKIE")) != "" ||
-		strings.TrimSpace(os.Getenv("KSC_ACCESS_TOKEN")) != ""
+		strings.TrimSpace(os.Getenv("KSC_ACCESS_TOKEN")) != "" ||
+		kscHasLoginCredentials()
 }
 
 // kscCookieHeader builds the Cookie header value for the Kaspersky Next / ES
@@ -202,6 +205,9 @@ func kscAuthScheme() string {
 		}
 		if strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" {
 			return "X-KSC-Session"
+		}
+		if kscHasLoginCredentials() {
+			return "KSCBasic login (account/password)"
 		}
 		return "none"
 	}
@@ -494,22 +500,150 @@ func extractEventArray(chunk map[string]interface{}) []interface{} {
 	return nil
 }
 
-// kscCall invokes a single KSC Open API method and returns the decoded JSON
-// response object.
+// managedSession caches a session token obtained by logging in with
+// account+password (KSCBasic + Session.StartSession), so callers do not have to
+// paste a token. It is refreshed automatically when the server rejects it.
+type managedSession struct {
+	mu    sync.Mutex
+	token string
+}
+
+var kscSession managedSession
+
+// kscLoginCredentials returns the configured account/password. It accepts the
+// canonical KSC_LOGIN/KSC_PASSWORD as well as the plain account/password keys.
+func kscLoginCredentials() (string, string) {
+	login := strings.TrimSpace(os.Getenv("KSC_LOGIN"))
+	if login == "" {
+		login = strings.TrimSpace(os.Getenv("account"))
+	}
+	password := os.Getenv("KSC_PASSWORD")
+	if strings.TrimSpace(password) == "" {
+		password = os.Getenv("password")
+	}
+	return login, password
+}
+
+func kscHasLoginCredentials() bool {
+	login, password := kscLoginCredentials()
+	return login != "" && password != ""
+}
+
+// kscStaticAuth reports whether an explicit (non-login) credential is set.
+func kscStaticAuth() bool {
+	return kscAuthorizationHeader() != "" ||
+		strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" ||
+		kscCookieHeader() != ""
+}
+
+// buildKSCBasic constructs the KSCBasic Authorization header from credentials.
+// KSC requires the login and password to be base64-encoded.
+func buildKSCBasic() string {
+	login, password := kscLoginCredentials()
+	internal := envOrDefault("KSC_INTERNAL", "1")
+	return fmt.Sprintf(`KSCBasic user="%s", pass="%s", internal="%s"`,
+		base64.StdEncoding.EncodeToString([]byte(login)),
+		base64.StdEncoding.EncodeToString([]byte(password)),
+		internal)
+}
+
+// kscStartSession authenticates with KSCBasic and returns a session token.
+func kscStartSession(ctx context.Context) (string, error) {
+	basic := buildKSCBasic()
+	decoded, _, err := kscRawCall(ctx, "Session", "StartSession", nil, func(r *http.Request) {
+		r.Header.Set("Authorization", basic)
+	})
+	if err != nil {
+		return "", err
+	}
+	token, ok := pxgRetVal(decoded).(string)
+	if !ok || token == "" {
+		return "", errors.New("Session.StartSession did not return a session token")
+	}
+	return token, nil
+}
+
+func (s *managedSession) get(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.token != "" {
+		return s.token, nil
+	}
+	token, err := kscStartSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	s.token = token
+	return token, nil
+}
+
+func (s *managedSession) reset() {
+	s.mu.Lock()
+	s.token = ""
+	s.mu.Unlock()
+}
+
+// applyStaticAuth attaches the configured explicit credential headers.
+func applyStaticAuth(req *http.Request) {
+	if auth := kscAuthorizationHeader(); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	if session := strings.TrimSpace(os.Getenv("KSC_SESSION")); session != "" {
+		req.Header.Set("X-KSC-Session", session)
+	}
+	if cookie := kscCookieHeader(); cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+	if xsrf := strings.TrimSpace(os.Getenv("KSC_XSRF_TOKEN")); xsrf != "" {
+		req.Header.Set("X-XSRF-TOKEN", xsrf)
+	}
+}
+
+// kscCall invokes a KSC Open API method. When only account+password are
+// configured it logs in on demand and reuses the cached session token,
+// transparently re-authenticating once if the server rejects the token.
 func kscCall(ctx context.Context, class, method string, params map[string]interface{}) (map[string]interface{}, error) {
+	if !kscConfigured() {
+		return nil, errors.New("KSC credentials are not configured (set KSC_LOGIN/KSC_PASSWORD, KSC_ACCESS_TOKEN, or KSC_AUTHORIZATION)")
+	}
+
+	// Explicit credentials take precedence over managed login.
+	if kscStaticAuth() || !kscHasLoginCredentials() {
+		decoded, _, err := kscRawCall(ctx, class, method, params, applyStaticAuth)
+		return decoded, err
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		token, err := kscSession.get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		decoded, status, err := kscRawCall(ctx, class, method, params, func(r *http.Request) {
+			r.Header.Set("X-KSC-Session", token)
+		})
+		if err != nil && attempt == 0 && (status == http.StatusForbidden || status == http.StatusUnauthorized) {
+			kscSession.reset()
+			continue
+		}
+		return decoded, err
+	}
+	return nil, errors.New("KSC session authentication failed after re-login")
+}
+
+// kscRawCall performs a single KSC Open API request. authApply attaches the
+// chosen credential headers. It returns the decoded body, HTTP status, and a
+// *kscError on PxgError or non-2xx responses.
+func kscRawCall(ctx context.Context, class, method string, params map[string]interface{}, authApply func(*http.Request)) (map[string]interface{}, int, error) {
 	base := kscBaseURL()
 	if _, err := url.Parse(base); err != nil {
-		return nil, fmt.Errorf("invalid KSC base URL: %w", err)
-	}
-	if !kscConfigured() {
-		return nil, errors.New("KSC_AUTHORIZATION or KSC_SESSION is not configured")
+		return nil, 0, fmt.Errorf("invalid KSC base URL: %w", err)
 	}
 
 	body := []byte("{}")
 	if len(params) > 0 {
 		encoded, err := json.Marshal(params)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		body = encoded
 	}
@@ -517,47 +651,36 @@ func kscCall(ctx context.Context, class, method string, params map[string]interf
 	target := base + kscAPIPrefix + class + "." + method
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if auth := kscAuthorizationHeader(); auth != "" {
-		req.Header.Set("Authorization", auth)
-	}
-	if session := strings.TrimSpace(os.Getenv("KSC_SESSION")); session != "" {
-		req.Header.Set("X-KSC-Session", session)
+	if authApply != nil {
+		authApply(req)
 	}
 	if vserver := strings.TrimSpace(os.Getenv("KSC_VSERVER")); vserver != "" {
 		req.Header.Set("X-KSC-VServer", vserver)
-	}
-	// The Kaspersky Next / ES Cloud console gateway authenticates browser
-	// sessions with a cookie (+ XSRF token) rather than a Bearer header.
-	if cookie := kscCookieHeader(); cookie != "" {
-		req.Header.Set("Cookie", cookie)
-	}
-	if xsrf := strings.TrimSpace(os.Getenv("KSC_XSRF_TOKEN")); xsrf != "" {
-		req.Header.Set("X-XSRF-TOKEN", xsrf)
 	}
 
 	client := newKSCHTTPClient(60 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamResponse+1))
 	if err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
 	if len(raw) > maxUpstreamResponse {
-		return nil, errors.New("KSC upstream response exceeded 4 MiB")
+		return nil, resp.StatusCode, errors.New("KSC upstream response exceeded 4 MiB")
 	}
 
 	var decoded map[string]interface{}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return nil, fmt.Errorf("KSC upstream returned a non-JSON response (HTTP %d)", resp.StatusCode)
+			return nil, resp.StatusCode, fmt.Errorf("KSC upstream returned a non-JSON response (HTTP %d)", resp.StatusCode)
 		}
 	}
 
@@ -568,15 +691,15 @@ func kscCall(ctx context.Context, class, method string, params map[string]interf
 		}
 		ke.Module, _ = pxg["module"].(string)
 		ke.Message, _ = pxg["message"].(string)
-		return nil, ke
+		return nil, resp.StatusCode, ke
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &kscError{Status: resp.StatusCode, Message: safeUpstreamBody(raw)}
+		return nil, resp.StatusCode, &kscError{Status: resp.StatusCode, Message: safeUpstreamBody(raw)}
 	}
 	if decoded == nil {
 		decoded = map[string]interface{}{}
 	}
-	return decoded, nil
+	return decoded, resp.StatusCode, nil
 }
 
 func pxgRetVal(result map[string]interface{}) interface{} {

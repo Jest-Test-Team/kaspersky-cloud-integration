@@ -7,6 +7,26 @@
 3. The standard KTIP token exposes six documented REST operations. Rich result objects do not imply additional endpoints; domain responses can contain WHOIS, categories, and zone data in one call.
 4. KSC OpenAPI contains hundreds of RPC methods, but that surface is for an Administration Server, not this hosted KES Cloud account.
 
+## Cloud workspace API authentication (empirically verified)
+
+The workspace `https://s405.cloud.kaspersky.com` exposes its management API on the `:8080` gateway under `/api/v1.0/Class.Method` — the same KSC Open API shape this backend integrates. Every auth scheme was tested against the live gateway:
+
+| Sent to the gateway | Result |
+|---|---|
+| `Authorization: Bearer <jwt>` | `401 credentials_required` (header ignored) |
+| `Authorization: KSCBasic user/pass` | `401 credentials_required` (header ignored) |
+| `X-KSC-Session: <id>` | `401 credentials_required` (header ignored) |
+| **`Cookie: access_token=<jwt>`** | **token read & validated** (`401 invalid_token / jwt expired` with a stale token) |
+
+**Conclusions:**
+
+1. The gateway's `express-jwt` layer reads the JWT only from the **`access_token` cookie**. The JWT payload is `{userId, iat, exp}` with a ~1-hour lifetime.
+2. The `access_token` is **not minted by `s405:8080`** — there is no username/password login endpoint there (all `/api/v1.0/login|auth|token` paths sit behind the same JWT middleware). It is issued by Kaspersky's central **My Kaspersky / `cloud.kaspersky.com`** OAuth flow, which is CAPTCHA/anti-bot/MFA protected.
+3. Therefore a backend account+password→token auto-login **cannot work for the cloud console** (only for a real on-prem KSC Administration Server). Scripting the central login is fragile and against Kaspersky ToS.
+4. The supported automation credential for the cloud workspace is a **fresh `access_token` cookie** (`KSC_ACCESS_TOKEN`), refreshed ~hourly from an authenticated browser session.
+
+The backend implements `KSCBasic` auto-login (`KSC_LOGIN`/`KSC_PASSWORD` → `Session.StartSession` → cached session token, auto re-login on 401) for real KSC servers, plus the `KSC_ACCESS_TOKEN` cookie path for the cloud console.
+
 ## Known issues and vendor behavior
 
 ### KTIP URL lookup returns HTTP 400
