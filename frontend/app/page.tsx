@@ -5,8 +5,16 @@ import { FormEvent, useEffect, useState } from "react";
 type Status = {
   intelligenceConfigured: boolean;
   intelligenceBaseUrl: string;
-  supportedOperations: string[];
+  supportedOperations: EndpointDescriptor[];
   cloudConsoleApi: string;
+};
+
+type EndpointDescriptor = {
+  name: string;
+  method: string;
+  upstreamPath: string;
+  applicationPath: string;
+  input: string;
 };
 
 type LookupResponse = {
@@ -135,7 +143,7 @@ export default function Home() {
         )}
       </section>
 
-      <section className="kscCard">
+      <section className="integrationCard">
         <div className="sectionHeading">
           <div>
             <span className="priority">Threat Intelligence · Sandbox</span>
@@ -148,10 +156,29 @@ export default function Home() {
           <input aria-label="File for analysis" type="file" name="file" required />
           <button disabled={loading || !status?.intelligenceConfigured}>Submit to Sandbox</button>
         </form>
-        {fileResult ? <pre className="kscResponse">{fileResult}</pre> : null}
+        {fileResult ? <pre className="integrationResponse">{fileResult}</pre> : null}
       </section>
 
-      <section className="kscCard">
+      <section className="integrationCard">
+        <div className="sectionHeading">
+          <div>
+            <span className="priority">Official API catalog</span>
+            <h2>All published cloud endpoints</h2>
+          </div>
+          <span className="types">{status?.supportedOperations.length ?? 6} ENDPOINTS</span>
+        </div>
+        <div className="endpointTable">
+          {(status?.supportedOperations ?? []).map((endpoint) => (
+            <div className="endpointRow" key={endpoint.upstreamPath}>
+              <strong>{endpoint.name}</strong>
+              <code>{endpoint.method} {endpoint.upstreamPath}</code>
+              <span>{endpoint.input}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="integrationCard">
         <div className="sectionHeading">
           <div>
             <span className="priority">Cloud product boundary</span>

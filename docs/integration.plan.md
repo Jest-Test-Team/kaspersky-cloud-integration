@@ -1,48 +1,58 @@
-# Kaspersky Cloud Integration Plan
+# Kaspersky Cloud Integration Implementation Plan
 
-## Product boundary
+## 1. Scope and product identity
 
-The supplied workspace URL is Kaspersky Endpoint Security Cloud (KES Cloud), not an on-premises Kaspersky Security Center Administration Server. This project integrates only publicly documented cloud APIs.
+The supplied console, `https://s405.cloud.kaspersky.com:8080`, identifies itself as **Kaspersky Endpoint Security Cloud**. It is not a customer-reachable Kaspersky Security Center Administration Server.
 
-Excluded:
+Integrate every officially documented public cloud endpoint that the supplied Kaspersky Threat Intelligence Portal API token can call. Do not scrape browser sessions or expose credentials to the frontend.
 
-- KSC OpenAPI `/api/v1.0/Class.Method`, because it manages a KSC Administration Server and is not a public KES Cloud customer API.
-- KSC `KSCT`, `KSCWT`, `KSCNT`, and `X-KSC-Session` credentials.
-- Endpoint-local Kaspersky Endpoint Security Web API, which Kaspersky documents as localhost-only and unavailable for remote management.
-- Undocumented browser endpoints and session scraping.
+## 2. Official endpoint inventory
 
-## Implemented official cloud API surface
+Base URL: `https://opentip.kaspersky.com/api/v1`; authentication: `X-API-KEY`.
 
-Kaspersky Threat Intelligence Portal API (`https://opentip.kaspersky.com/api/v1`):
+| # | Method | Upstream endpoint | Purpose | Application route |
+|---|---|---|---|---|
+| 1 | GET | `/search/hash?request=...` | MD5, SHA-1, or SHA-256 lookup | `POST /api/intelligence/lookup` |
+| 2 | GET | `/search/ip?request=...` | IPv4 lookup | `POST /api/intelligence/lookup` |
+| 3 | GET | `/search/domain?request=...` | Domain lookup | `POST /api/intelligence/lookup` |
+| 4 | GET | `/search/url?request=...` | HTTP(S) web-address lookup | `POST /api/intelligence/lookup` |
+| 5 | POST | `/scan/file?filename=...` | Basic Sandbox file analysis | `POST /api/intelligence/file/scan` |
+| 6 | POST | `/getresult/file?request=...` | Full file-analysis report | `POST /api/intelligence/file/report` |
 
-1. Hash lookup: `GET /search/hash`
-2. IPv4 lookup: `GET /search/ip`
-3. Domain lookup: `GET /search/domain`
-4. Web-address lookup: `GET /search/url`
-5. Basic file analysis: `POST /scan/file`
-6. File-analysis result: `POST /getresult/file`
+The application also publishes this inventory at `GET /api/integrations/endpoints`.
 
-All requests are made by the Go backend with `KASPERSKY_TIP_API_KEY`; the browser never receives the token.
+## 3. Explicitly unavailable surfaces
 
-## KES Cloud integrations without a public REST contract
+- Kaspersky Endpoint Security Cloud has no officially published general-purpose customer administration REST contract.
+- KSC OpenAPI targets an Administration Server and its documentation requires the OpenAPI package on the Administration Server device. It is not a public KES Cloud API.
+- Endpoint Security for Windows Web API is localhost-only.
+- MSP connectors and the OpenCTI/TAXII connector are separately installed products and use different credentials/contracts.
+- Undocumented Web Console endpoints are excluded because they are private implementation details, cannot be supported safely, and do not constitute an official API.
 
-Kaspersky officially supports product-specific MSP integrations, including ConnectWise integrations through Kaspersky Security Integration Tool for MSP. Those workflows use the vendor tool, Kaspersky account credentials, integration IDs, and workspace mappings. They do not publish a reusable REST API contract for this application to implement.
+## 4. Implementation phases
 
-Demo TAXII feeds require a separate Demo TAXII Server Token and are intended for the Kaspersky OpenCTI connector. TAXII is not enabled by the regular Threat Intelligence API token.
+1. Keep the API key exclusively in the Go backend and validate all user inputs.
+2. Implement the four typed lookup calls, file upload, and full report retrieval.
+3. Publish endpoint metadata and integration status for the frontend and automation.
+4. Render lookup, Sandbox upload, endpoint inventory, and the product limitation in the frontend.
+5. Verify all upstream mappings with a mock Kaspersky server in Go tests.
+6. Exercise all six integrations against the configured token with Robot Framework.
+7. Build production binaries and images, recreate the Compose stack, and rerun smoke tests.
+8. Record outcomes, limitations, issues, and reproducible commands under `docs/`.
 
-## Verification
+## 5. Acceptance criteria
 
-- Go unit tests and production build.
-- Next.js production build.
-- Backend and frontend image builds.
-- Compose health checks.
-- Live safe tests for every configured Threat Intelligence operation.
-- Unsupported or unlicensed upstream operations must return their real safe error rather than being represented as integrated.
+- Exactly six official KTIP endpoints are cataloged and implemented.
+- Authentication is server-side and absent from browser responses/logs.
+- Every endpoint has contract coverage and live Robot coverage.
+- Upstream errors retain the upstream HTTP status without leaking secrets.
+- Go tests/build, Next.js production build, Docker image build, Compose health, frontend HTTP check, and Robot suite are executed successfully or any vendor-side failure is recorded precisely.
 
-## Official references
+## 6. Official sources
 
-- Threat Intelligence API: https://opentip.kaspersky.com/Help/Doc_data/WorkingWithAPI.htm
-- Threat Intelligence full API reference: https://opentip.kaspersky.com/Help/Doc_data/all-in-one.htm?sectionUrl=URLLookupAPI.htm
-- KES Cloud product documentation: https://support.kaspersky.com/Cloud/1.0/en-us/123486.htm
+- KTIP API overview: https://opentip.kaspersky.com/Help/Doc_data/WorkingWithAPI.htm
+- KTIP complete reference: https://opentip.kaspersky.com/Help/Doc_data/all-in-one.htm?sectionUrl=WorkingWithAPI.htm
+- KES Cloud overview: https://support.kaspersky.com/Cloud/1.0/en-us/123486.htm
 - KES Cloud MSP integrations: https://support.kaspersky.com/msp/integrations/141380.htm
-- Local-only Endpoint Security REST limitation: https://support.kaspersky.com/kes-for-windows/12.2/189442
+- KSC OpenAPI reference: https://support.kaspersky.com/ksc/14/en-US/211453.htm
+- Endpoint-local KES API limitation: https://support.kaspersky.com/kes-for-windows/12.2/189442

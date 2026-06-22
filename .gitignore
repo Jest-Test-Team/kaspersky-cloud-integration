@@ -9,6 +9,9 @@ frontend/.next/
 frontend/out/
 frontend/node_modules/
 
+# Robot Framework
+test/results/
+
 # Environment
 .env
 *.local

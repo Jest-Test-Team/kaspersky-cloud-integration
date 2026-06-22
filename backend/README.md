@@ -14,6 +14,7 @@ Generate `KASPERSKY_TIP_API_KEY` at https://opentip.kaspersky.com/token/.
 
 - `GET /healthz`
 - `GET /api/integrations/status`
+- `GET /api/integrations/endpoints`
 - `POST /api/intelligence/lookup`
 - `POST /api/intelligence/file/scan`
 - `POST /api/intelligence/file/report`
@@ -27,3 +28,5 @@ docker compose up -d --build
 Frontend: `http://localhost:3000`; backend: `http://localhost:8080`.
 
 The KES Cloud console has no publicly documented general-purpose customer REST API. Supported MSP integrations must be configured with Kaspersky's vendor integration tooling.
+
+See [`../docs/api-endpoints.md`](../docs/api-endpoints.md) for the complete upstream and application endpoint catalog and [`../docs/testing.md`](../docs/testing.md) for Robot Framework verification.

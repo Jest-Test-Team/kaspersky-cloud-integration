@@ -21,6 +21,10 @@ import (
 const maxUpstreamResponse = 4 << 20
 const maxFileUpload = 256 << 20
 
+var newHTTPClient = func(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout}
+}
+
 var (
 	hashPattern   = regexp.MustCompile(`(?i)^(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})$`)
 	domainPattern = regexp.MustCompile(`(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -31,10 +35,27 @@ type intelligenceLookupRequest struct {
 }
 
 type integrationStatus struct {
-	IntelligenceConfigured bool     `json:"intelligenceConfigured"`
-	IntelligenceBaseURL    string   `json:"intelligenceBaseUrl"`
-	SupportedOperations    []string `json:"supportedOperations"`
-	CloudConsoleAPI        string   `json:"cloudConsoleApi"`
+	IntelligenceConfigured bool                 `json:"intelligenceConfigured"`
+	IntelligenceBaseURL    string               `json:"intelligenceBaseUrl"`
+	SupportedOperations    []endpointDescriptor `json:"supportedOperations"`
+	CloudConsoleAPI        string               `json:"cloudConsoleApi"`
+}
+
+type endpointDescriptor struct {
+	Name            string `json:"name"`
+	Method          string `json:"method"`
+	UpstreamPath    string `json:"upstreamPath"`
+	ApplicationPath string `json:"applicationPath"`
+	Input           string `json:"input"`
+}
+
+var supportedEndpoints = []endpointDescriptor{
+	{Name: "Hash lookup", Method: http.MethodGet, UpstreamPath: "/search/hash", ApplicationPath: "/api/intelligence/lookup", Input: "MD5, SHA-1, or SHA-256"},
+	{Name: "IPv4 lookup", Method: http.MethodGet, UpstreamPath: "/search/ip", ApplicationPath: "/api/intelligence/lookup", Input: "IPv4 address"},
+	{Name: "Domain lookup", Method: http.MethodGet, UpstreamPath: "/search/domain", ApplicationPath: "/api/intelligence/lookup", Input: "domain"},
+	{Name: "URL lookup", Method: http.MethodGet, UpstreamPath: "/search/url", ApplicationPath: "/api/intelligence/lookup", Input: "HTTP(S) URL"},
+	{Name: "Basic file analysis", Method: http.MethodPost, UpstreamPath: "/scan/file", ApplicationPath: "/api/intelligence/file/scan", Input: "binary file, maximum 256 MiB"},
+	{Name: "Full file analysis report", Method: http.MethodPost, UpstreamPath: "/getresult/file", ApplicationPath: "/api/intelligence/file/report", Input: "MD5, SHA-1, or SHA-256"},
 }
 
 type fileReportRequest struct {
@@ -51,6 +72,14 @@ func (e *upstreamError) Error() string {
 }
 
 func registerIntegrationRoutes(router *gin.Engine) {
+	router.GET("/api/integrations/endpoints", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"product":   "Kaspersky Threat Intelligence Portal API",
+			"baseUrl":   envOrDefault("KASPERSKY_TIP_BASE_URL", "https://opentip.kaspersky.com/api/v1"),
+			"endpoints": supportedEndpoints,
+		})
+	})
+
 	router.GET("/api/integrations/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, currentIntegrationStatus())
 	})
@@ -121,7 +150,7 @@ func currentIntegrationStatus() integrationStatus {
 	return integrationStatus{
 		IntelligenceConfigured: strings.TrimSpace(os.Getenv("KASPERSKY_TIP_API_KEY")) != "",
 		IntelligenceBaseURL:    envOrDefault("KASPERSKY_TIP_BASE_URL", "https://opentip.kaspersky.com/api/v1"),
-		SupportedOperations:    []string{"hash lookup", "IPv4 lookup", "domain lookup", "URL lookup", "file scan", "file report"},
+		SupportedOperations:    supportedEndpoints,
 		CloudConsoleAPI:        "not publicly available for Kaspersky Endpoint Security Cloud",
 	}
 }
@@ -224,7 +253,7 @@ func doKasperskyRequest(req *http.Request) (interface{}, error) {
 }
 
 func doKasperskyRequestWithTimeout(req *http.Request, timeout time.Duration) (interface{}, error) {
-	client := &http.Client{Timeout: timeout}
+	client := newHTTPClient(timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
