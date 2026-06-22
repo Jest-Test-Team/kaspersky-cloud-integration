@@ -9,7 +9,6 @@ FROM alpine:3.22
 RUN apk add --no-cache ca-certificates && addgroup -S app && adduser -S -G app app
 WORKDIR /app
 COPY --from=build /out/kaspersky-backend ./kaspersky-backend
-COPY swagger.json ./swagger.json
 USER app
 EXPOSE 8080
 ENTRYPOINT ["./kaspersky-backend"]

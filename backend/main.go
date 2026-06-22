@@ -85,7 +85,11 @@ type proxyResponse struct {
 func main() {
 	spec, specPath, err := loadSpec()
 	if err != nil {
-		log.Fatalf("load swagger spec: %v", err)
+		log.Printf("Legacy Endpoint Security swagger disabled: %v", err)
+		spec = &openAPISpec{}
+		spec.Info.Title = "Kaspersky Integration API"
+		spec.Info.Description = "Kaspersky Threat Intelligence and Security Center integration"
+		spec.Info.Version = "1.0.0"
 	}
 
 	targetURL := strings.TrimRight(envOrDefault("KES_API_BASE_URL", firstServerURL(spec, "http://localhost:8021")), "/")

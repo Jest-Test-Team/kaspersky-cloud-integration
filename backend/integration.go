@@ -265,11 +265,10 @@ func callKSC(ctx context.Context, method string, args map[string]interface{}) (i
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if auth != "" {
-		req.Header.Set("Authorization", auth)
-	}
 	if session != "" {
 		req.Header.Set("X-KSC-Session", session)
+	} else if auth != "" {
+		req.Header.Set("Authorization", auth)
 	}
 	return doKasperskyRequest(req)
 }
