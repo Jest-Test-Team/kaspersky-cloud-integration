@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,9 +22,8 @@ const maxUpstreamResponse = 4 << 20
 const maxFileUpload = 256 << 20
 
 var (
-	hashPattern      = regexp.MustCompile(`(?i)^(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})$`)
-	domainPattern    = regexp.MustCompile(`(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
-	kscMethodPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$`)
+	hashPattern   = regexp.MustCompile(`(?i)^(?:[a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})$`)
+	domainPattern = regexp.MustCompile(`(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
 type intelligenceLookupRequest struct {
@@ -33,15 +31,10 @@ type intelligenceLookupRequest struct {
 }
 
 type integrationStatus struct {
-	IntelligenceConfigured bool   `json:"intelligenceConfigured"`
-	IntelligenceBaseURL    string `json:"intelligenceBaseUrl"`
-	KSCConfigured          bool   `json:"kscConfigured"`
-	KSCBaseURL             string `json:"kscBaseUrl"`
-}
-
-type kscCallRequest struct {
-	Method string                 `json:"method" binding:"required"`
-	Args   map[string]interface{} `json:"args"`
+	IntelligenceConfigured bool     `json:"intelligenceConfigured"`
+	IntelligenceBaseURL    string   `json:"intelligenceBaseUrl"`
+	SupportedOperations    []string `json:"supportedOperations"`
+	CloudConsoleAPI        string   `json:"cloudConsoleApi"`
 }
 
 type fileReportRequest struct {
@@ -122,35 +115,14 @@ func registerIntegrationRoutes(router *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{"hash": strings.ToLower(strings.TrimSpace(req.Hash)), "result": result})
 	})
 
-	router.POST("/api/ksc/call", func(c *gin.Context) {
-		var req kscCallRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "method is required"})
-			return
-		}
-		if !kscMethodPattern.MatchString(req.Method) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "method must use the documented Class.Method format"})
-			return
-		}
-		if req.Args == nil {
-			req.Args = map[string]interface{}{}
-		}
-
-		result, err := callKSC(c.Request.Context(), req.Method, req.Args)
-		if err != nil {
-			writeIntegrationError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"method": req.Method, "result": result})
-	})
 }
 
 func currentIntegrationStatus() integrationStatus {
 	return integrationStatus{
 		IntelligenceConfigured: strings.TrimSpace(os.Getenv("KASPERSKY_TIP_API_KEY")) != "",
 		IntelligenceBaseURL:    envOrDefault("KASPERSKY_TIP_BASE_URL", "https://opentip.kaspersky.com/api/v1"),
-		KSCConfigured:          strings.TrimSpace(os.Getenv("KSC_AUTHORIZATION")) != "" || strings.TrimSpace(os.Getenv("KSC_SESSION")) != "",
-		KSCBaseURL:             envOrDefault("KSC_BASE_URL", "https://s405.cloud.kaspersky.com:8080"),
+		SupportedOperations:    []string{"hash lookup", "IPv4 lookup", "domain lookup", "URL lookup", "file scan", "file report"},
+		CloudConsoleAPI:        "not publicly available for Kaspersky Endpoint Security Cloud",
 	}
 }
 
@@ -245,32 +217,6 @@ func intelligenceTarget(path string) (*url.URL, string, error) {
 		return nil, "", fmt.Errorf("invalid intelligence base URL: %w", err)
 	}
 	return target, apiKey, nil
-}
-
-func callKSC(ctx context.Context, method string, args map[string]interface{}) (interface{}, error) {
-	auth := strings.TrimSpace(os.Getenv("KSC_AUTHORIZATION"))
-	session := strings.TrimSpace(os.Getenv("KSC_SESSION"))
-	if auth == "" && session == "" {
-		return nil, errors.New("KSC_AUTHORIZATION or KSC_SESSION is not configured")
-	}
-
-	body, err := json.Marshal(args)
-	if err != nil {
-		return nil, err
-	}
-	base := strings.TrimRight(envOrDefault("KSC_BASE_URL", "https://s405.cloud.kaspersky.com:8080"), "/")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/v1.0/"+method, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	if session != "" {
-		req.Header.Set("X-KSC-Session", session)
-	} else if auth != "" {
-		req.Header.Set("Authorization", auth)
-	}
-	return doKasperskyRequest(req)
 }
 
 func doKasperskyRequest(req *http.Request) (interface{}, error) {

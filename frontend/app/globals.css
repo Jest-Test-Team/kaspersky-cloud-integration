@@ -45,4 +45,6 @@ pre,.emptyState { min-height:300px; margin:20px 0 0; padding:20px; border-radius
 input[type="file"] { padding:14px; }
 label { display:grid; gap:8px; color:var(--muted); font-size:12px; font-weight:800; text-transform:uppercase; }
 .kscResponse { min-height:120px; }
+.boundaryCopy { margin-top:20px; }
+.documentationLink { display:inline-flex; margin-top:18px; color:var(--green); font-weight:800; }
 @media (max-width:850px) { .hero,.resultGrid,.kscForm,.fileForm { grid-template-columns:1fr; } .lookupForm { grid-template-columns:1fr; } .sectionHeading { align-items:start; flex-direction:column; } }

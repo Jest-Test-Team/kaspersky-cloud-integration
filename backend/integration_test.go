@@ -28,16 +28,3 @@ func TestClassifyIndicatorRejectsUnsupported(t *testing.T) {
 		t.Fatal("expected invalid indicator to be rejected")
 	}
 }
-
-func TestKSCMethodPattern(t *testing.T) {
-	for _, method := range []string{"HostGroup.GetStaticInfo", "Tasks.GetTask"} {
-		if !kscMethodPattern.MatchString(method) {
-			t.Fatalf("expected %q to be accepted", method)
-		}
-	}
-	for _, method := range []string{"https://evil.test", "../login", "HostGroup/GetStaticInfo"} {
-		if kscMethodPattern.MatchString(method) {
-			t.Fatalf("expected %q to be rejected", method)
-		}
-	}
-}

@@ -9,9 +9,6 @@ services:
       CORS_ALLOW_ORIGIN: "http://localhost:3000"
       KASPERSKY_TIP_BASE_URL: "https://opentip.kaspersky.com/api/v1"
       KASPERSKY_TIP_API_KEY: "${KASPERSKY_TIP_API_KEY:-}"
-      KSC_BASE_URL: "${KSC_BASE_URL:-https://s405.cloud.kaspersky.com:8080}"
-      KSC_AUTHORIZATION: "${KSC_AUTHORIZATION:-}"
-      KSC_SESSION: "${KSC_SESSION:-}"
     ports:
       - "8080:8080"
     healthcheck:

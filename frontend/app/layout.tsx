@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Kaspersky Threat Intelligence Console",
-  description: "Threat Intelligence and Security Center integration console",
+  description: "Official Kaspersky cloud Threat Intelligence API console",
 };
 
 export default function RootLayout({

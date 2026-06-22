@@ -5,8 +5,8 @@ import { FormEvent, useEffect, useState } from "react";
 type Status = {
   intelligenceConfigured: boolean;
   intelligenceBaseUrl: string;
-  kscConfigured: boolean;
-  kscBaseUrl: string;
+  supportedOperations: string[];
+  cloudConsoleApi: string;
 };
 
 type LookupResponse = {
@@ -32,9 +32,6 @@ export default function Home() {
   const [status, setStatus] = useState<Status | null>(null);
   const [indicator, setIndicator] = useState("");
   const [lookup, setLookup] = useState<LookupResponse | null>(null);
-  const [method, setMethod] = useState("HostGroup.GetStaticInfo");
-  const [args, setArgs] = useState("{\n  \"pValues\": null\n}");
-  const [kscResult, setKscResult] = useState("");
   const [fileResult, setFileResult] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -74,25 +71,6 @@ export default function Home() {
     }
   }
 
-  async function callKSC(event: FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setKscResult("");
-    try {
-      const response = await fetch(`${apiBase}/api/ksc/call`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method, args: JSON.parse(args) }),
-      });
-      setKscResult(JSON.stringify(await parseResponse(response), null, 2));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "KSC call failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function submitFile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -116,13 +94,13 @@ export default function Home() {
       <header className="hero">
         <div>
           <p className="eyebrow">Kaspersky security integration</p>
-          <h1>Investigate first. Administer second.</h1>
-          <p className="lede">Enrich suspicious indicators with Kaspersky Threat Intelligence, then use the authenticated Security Center connection for controlled administration calls.</p>
+          <h1>Kaspersky cloud intelligence, without on-prem APIs.</h1>
+          <p className="lede">Every officially documented basic-token operation for Kaspersky Threat Intelligence Portal, with credentials held only by the backend.</p>
         </div>
         <div className="statusCard">
           <StatusRow label="Threat Intelligence" ready={status?.intelligenceConfigured} />
-          <StatusRow label="Cloud Console" ready={status?.kscConfigured} />
-          <span className="consoleUrl">{status?.kscBaseUrl ?? "Connecting to backend…"}</span>
+          <div className="statusRow"><span className="dot" /><strong>KES Cloud admin API</strong><em>Not publicly exposed</em></div>
+          <span className="consoleUrl">{status?.cloudConsoleApi ?? "Connecting to backend…"}</span>
         </div>
       </header>
 
@@ -176,17 +154,13 @@ export default function Home() {
       <section className="kscCard">
         <div className="sectionHeading">
           <div>
-            <span className="priority">Priority 02 · Advanced</span>
-            <h2>Security Center Open API</h2>
+            <span className="priority">Cloud product boundary</span>
+            <h2>Endpoint Security Cloud administration</h2>
           </div>
-          <span className="types">POST /api/v1.0/Class.Method</span>
+          <span className="types">NO PUBLIC CUSTOMER REST CONTRACT</span>
         </div>
-        <form className="kscForm" onSubmit={callKSC}>
-          <label>Documented method<input value={method} onChange={(event) => setMethod(event.target.value)} /></label>
-          <label>Arguments JSON<textarea value={args} onChange={(event) => setArgs(event.target.value)} /></label>
-          <button disabled={loading || !status?.kscConfigured}>Call Cloud Console</button>
-        </form>
-        {kscResult ? <pre className="kscResponse">{kscResult}</pre> : null}
+        <p className="lede boundaryCopy">Kaspersky documents browser management and product-specific MSP connectors for Endpoint Security Cloud. KSC OpenAPI, KSC sessions, and the endpoint-local KES Web API are intentionally not exposed by this application.</p>
+        <a className="documentationLink" href="https://support.kaspersky.com/msp/integrations/141380.htm" target="_blank" rel="noreferrer">Official MSP integration options</a>
       </section>
     </main>
   );
