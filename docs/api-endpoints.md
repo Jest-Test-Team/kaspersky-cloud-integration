@@ -58,18 +58,19 @@ There is **no anonymous public Swagger/OpenAPI** for Kaspersky Endpoint Security
 
 ### Cloud console authentication (important)
 
-The Kaspersky Next / ES Cloud console gateway does **not** accept `Authorization: Bearer <jwt>` or `X-KSC-Session` for its `/api/v1.0/` surface — both still return `credentials_required`. Its `express-jwt` layer uses a custom token extractor that reads the **authenticated browser session cookie (+ XSRF token)**. This is consistent with Kaspersky's position that Endpoint Security Cloud has no public programmatic management API.
+The Kaspersky Next / ES Cloud console gateway does **not** accept `Authorization: Bearer <jwt>` or `X-KSC-Session` for its `/api/v1.0/` surface — both return `credentials_required`. Its `express-jwt` layer uses a custom token extractor that reads the JWT from the **`access_token` cookie**. This was verified empirically: supplying `Cookie: access_token=<jwt>` changes the gateway response from `credentials_required` to `invalid_token` / `jwt expired`, proving the cookie is the token source. (The JWT payload is `{userId, iat, exp}` with a ~1-hour lifetime.) This matches Kaspersky's position that Endpoint Security Cloud has no public programmatic management API — the only credential is a browser session token.
 
-The backend therefore supports three credential modes, in priority order:
+The backend supports these credential modes, in priority order:
 
 | Env var | Header sent | Use case |
 |---|---|---|
-| `KSC_BEARER_TOKEN` | `Authorization: Bearer <token>` | OAuth/JWT (on-prem KSC, future cloud OAuth) |
+| `KSC_BEARER_TOKEN` | `Authorization: Bearer <token>` | On-prem KSC OAuth (not the cloud console) |
 | `KSC_AUTHORIZATION` | `Authorization: <verbatim>` | On-prem KSC (`KSCT`/`KSCWT`/`KSCBasic`) |
-| `KSC_COOKIE` (+ `KSC_XSRF_TOKEN`) | `Cookie:` (+ `X-XSRF-TOKEN:`) | Cloud console browser session |
-| `KSC_SESSION` | `X-KSC-Session: <id>` | Existing KSC session id |
+| `KSC_ACCESS_TOKEN` | `Cookie: access_token=<jwt>` | **Cloud console (verified)** |
+| `KSC_COOKIE` (+ `KSC_XSRF_TOKEN`) | `Cookie:` (+ `X-XSRF-TOKEN:`) | Cloud console, full raw cookie string |
+| `KSC_SESSION` | `X-KSC-Session: <id>` | Existing on-prem KSC session id |
 
-To drive the live cloud workspace today: sign in at `https://s405.cloud.kaspersky.com/`, copy the request `Cookie` (and `X-XSRF-TOKEN`) header from an authenticated XHR in browser DevTools, set `KSC_COOKIE`/`KSC_XSRF_TOKEN`, and restart the backend.
+To drive the live cloud workspace: sign in at `https://s405.cloud.kaspersky.com/`, open DevTools → Network, copy the `access_token` value from the request `cookie` header of any authenticated `/api/v1.0/...` (or `/host-app-plugins`) request, set `KSC_ACCESS_TOKEN`, and restart the backend within the ~1-hour token lifetime.
 
 ### Console vs. Administration Server note
 

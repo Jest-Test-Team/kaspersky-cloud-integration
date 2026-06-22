@@ -160,7 +160,22 @@ func (e *kscError) Error() string {
 func kscConfigured() bool {
 	return kscAuthorizationHeader() != "" ||
 		strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" ||
-		strings.TrimSpace(os.Getenv("KSC_COOKIE")) != ""
+		strings.TrimSpace(os.Getenv("KSC_COOKIE")) != "" ||
+		strings.TrimSpace(os.Getenv("KSC_ACCESS_TOKEN")) != ""
+}
+
+// kscCookieHeader builds the Cookie header value for the Kaspersky Next / ES
+// Cloud console gateway, which authenticates via an `access_token` JWT cookie.
+// KSC_ACCESS_TOKEN supplies just the JWT; KSC_COOKIE supplies a full raw cookie
+// string (and wins if both are set).
+func kscCookieHeader() string {
+	if cookie := strings.TrimSpace(os.Getenv("KSC_COOKIE")); cookie != "" {
+		return cookie
+	}
+	if token := strings.TrimSpace(os.Getenv("KSC_ACCESS_TOKEN")); token != "" {
+		return "access_token=" + token
+	}
+	return ""
 }
 
 // kscAuthorizationHeader resolves the Authorization header value. The Kaspersky
@@ -182,8 +197,8 @@ func kscAuthorizationHeader() string {
 func kscAuthScheme() string {
 	header := kscAuthorizationHeader()
 	if header == "" {
-		if strings.TrimSpace(os.Getenv("KSC_COOKIE")) != "" {
-			return "Cookie"
+		if kscCookieHeader() != "" {
+			return "Cookie (access_token)"
 		}
 		if strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" {
 			return "X-KSC-Session"
@@ -517,7 +532,7 @@ func kscCall(ctx context.Context, class, method string, params map[string]interf
 	}
 	// The Kaspersky Next / ES Cloud console gateway authenticates browser
 	// sessions with a cookie (+ XSRF token) rather than a Bearer header.
-	if cookie := strings.TrimSpace(os.Getenv("KSC_COOKIE")); cookie != "" {
+	if cookie := kscCookieHeader(); cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
 	if xsrf := strings.TrimSpace(os.Getenv("KSC_XSRF_TOKEN")); xsrf != "" {
