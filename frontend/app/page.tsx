@@ -23,6 +23,31 @@ type LookupResponse = {
   result: Record<string, unknown>;
 };
 
+type KscOperation = {
+  name: string;
+  class: string;
+  method: string;
+  applicationPath: string;
+  description: string;
+};
+
+type KscStatus = {
+  product: string;
+  baseUrl: string;
+  configured: boolean;
+  transport: string;
+  operations: KscOperation[];
+};
+
+type KscQuery = { label: string; path: string };
+
+const kscQueries: KscQuery[] = [
+  { label: "Server info", path: "/api/ksc/server-info" },
+  { label: "Groups", path: "/api/ksc/groups" },
+  { label: "Hosts", path: "/api/ksc/hosts" },
+  { label: "Licenses", path: "/api/ksc/licenses" },
+];
+
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
 function extractVerdict(result: Record<string, unknown>) {
@@ -43,6 +68,9 @@ export default function Home() {
   const [fileResult, setFileResult] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [kscStatus, setKscStatus] = useState<KscStatus | null>(null);
+  const [kscResult, setKscResult] = useState("");
+  const [kscBusy, setKscBusy] = useState("");
 
   useEffect(() => {
     fetch(`${apiBase}/api/integrations/status`)
@@ -52,7 +80,29 @@ export default function Home() {
       })
       .then(setStatus)
       .catch((err: Error) => setError(err.message));
+
+    fetch(`${apiBase}/api/ksc/status`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+        return response.json();
+      })
+      .then(setKscStatus)
+      .catch(() => undefined);
   }, []);
+
+  async function runKscQuery(query: KscQuery) {
+    setKscBusy(query.path);
+    setKscResult("");
+    try {
+      const response = await fetch(`${apiBase}${query.path}`);
+      const data = await response.json();
+      setKscResult(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setKscResult(err instanceof Error ? err.message : "KSC request failed");
+    } finally {
+      setKscBusy("");
+    }
+  }
 
   async function parseResponse(response: Response) {
     const data = await response.json();
@@ -107,8 +157,8 @@ export default function Home() {
         </div>
         <div className="statusCard">
           <StatusRow label="Threat Intelligence" ready={status?.intelligenceConfigured} />
-          <div className="statusRow"><span className="dot" /><strong>KES Cloud admin API</strong><em>Not publicly exposed</em></div>
-          <span className="consoleUrl">{status?.cloudConsoleApi ?? "Connecting to backend…"}</span>
+          <StatusRow label="Security Center Open API" ready={kscStatus?.configured} />
+          <span className="consoleUrl">{kscStatus?.baseUrl ?? status?.cloudConsoleApi ?? "Connecting to backend…"}</span>
         </div>
       </header>
 
@@ -181,13 +231,38 @@ export default function Home() {
       <section className="integrationCard">
         <div className="sectionHeading">
           <div>
-            <span className="priority">Cloud product boundary</span>
-            <h2>Endpoint Security Cloud administration</h2>
+            <span className="priority">Kaspersky Security Center 15.2</span>
+            <h2>Administration Server Open API</h2>
           </div>
-          <span className="types">NO PUBLIC CUSTOMER REST CONTRACT</span>
+          <span className="types">{kscStatus?.operations.length ?? 0} OPERATIONS</span>
         </div>
-        <p className="lede boundaryCopy">Kaspersky documents browser management and product-specific MSP connectors for Endpoint Security Cloud. KSC OpenAPI, KSC sessions, and the endpoint-local KES Web API are intentionally not exposed by this application.</p>
-        <a className="documentationLink" href="https://support.kaspersky.com/msp/integrations/141380.htm" target="_blank" rel="noreferrer">Official MSP integration options</a>
+        <p className="configurationNote">{kscStatus?.transport ?? "HTTP+JSON over /api/v1.0/Class.Method"}</p>
+        {!kscStatus?.configured && kscStatus ? (
+          <p className="configurationNote">Set <code>KSC_AUTHORIZATION</code> or <code>KSC_SESSION</code> on the backend to enable live calls.</p>
+        ) : null}
+
+        <div className="lookupForm">
+          {kscQueries.map((query) => (
+            <button key={query.path} onClick={() => runKscQuery(query)} disabled={kscBusy !== "" || !kscStatus}>
+              {kscBusy === query.path ? "Loading…" : query.label}
+            </button>
+          ))}
+        </div>
+
+        {kscResult ? <pre className="integrationResponse">{kscResult}</pre> : (
+          <div className="emptyState">Choose a Security Center query to call the Administration Server.</div>
+        )}
+
+        <div className="endpointTable">
+          {(kscStatus?.operations ?? []).map((op) => (
+            <div className="endpointRow" key={op.applicationPath}>
+              <strong>{op.name}</strong>
+              <code>{op.class === "*" ? op.applicationPath : `${op.class}.${op.method}`}</code>
+              <span>{op.description}</span>
+            </div>
+          ))}
+        </div>
+        <a className="documentationLink" href="https://support.kaspersky.com/help/KSC/15.2/KSCAPI/" target="_blank" rel="noreferrer">KSC 15.2 Open API reference</a>
       </section>
     </main>
   );

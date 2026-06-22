@@ -20,10 +20,12 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":                     true,
 			"intelligenceConfigured": strings.TrimSpace(os.Getenv("KASPERSKY_TIP_API_KEY")) != "",
-			"product":                "Kaspersky Threat Intelligence Portal",
+			"kscConfigured":          kscConfigured(),
+			"product":                "Kaspersky Threat Intelligence Portal + Security Center Open API",
 		})
 	})
 	registerIntegrationRoutes(router)
+	registerKSCRoutes(router)
 
 	addr := envOrDefault("BACKEND_ADDR", ":8080")
 	log.Printf("Kaspersky cloud Threat Intelligence integration listening on %s", addr)
