@@ -15,6 +15,9 @@ Verified on 2026-06-22 (Asia/Taipei).
 | Robot Framework intelligence suite | PASS | 7 tests passed, 0 failed (`test/kaspersky_cloud.robot`) |
 | Robot Framework KSC suite | PASS | 8 tests passed, 0 failed (`test/ksc.robot`) |
 | KSC allow-list enforcement | PASS | `POST /api/ksc/call` with `HostGroup.RemoveHost` returns HTTP 403 |
+| Docker rebuild + up | PASS | Both images rebuilt; backend healthy, frontend HTTP 200; engine 29.5.2 |
+| Robot suites vs. composed stack | PASS | 19 tests passed (KSC 12 + intelligence 7) against the running containers |
+| Cloud auth scheme live | PASS | `/api/ksc/status` reports `authScheme: KSCBasic login (account/password)`, 9 operations |
 
 ## Live endpoint outcomes
 
