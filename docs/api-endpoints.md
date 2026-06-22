@@ -26,6 +26,25 @@ Every request uses `X-API-KEY`. The source of truth is Kaspersky's [Working with
 | POST | `/api/intelligence/file/scan` | Validated file submission, maximum 256 MiB |
 | POST | `/api/intelligence/file/report` | Full report retrieval by validated hash |
 
-## Why KSC has hundreds of methods but they are not listed as cloud endpoints
+## Kaspersky Security Center 15.2 Administration Server Open API
 
-KSC OpenAPI is an RPC-style API with a large class/method catalog for a KSC Administration Server. Kaspersky's own reference states its client package and scripts run on a device where Administration Server and the OpenAPI package are installed. The supplied hosted URL is a KES Cloud Web Console, not that Administration Server interface. Therefore those methods are not callable cloud endpoints for this account.
+The KSC Open API is an HTTP+JSON API (not JSON-RPC). Each method is invoked with `POST {base}/api/v1.0/[Instance.]Class.Method`, a JSON body of input parameters (`{}` when none), `Content-Type: application/json`, and either an `Authorization` header (`KSCT <token>`, `KSCWT <web-token>`, `KSCBasic ...`) or an `X-KSC-Session` header. Success returns `{"PxgRetVal": ..., <out params>}`; failure returns `{"PxgError": {code, module, message}}`. List operations return a server-side iterator that is drained through `ChunkAccessor.GetItemsCount`/`GetItemsChunk` and then `Release`. Default port is 13299. Reference: https://support.kaspersky.com/help/KSC/15.2/KSCAPI/
+
+### Backend KSC routes
+
+| Method | Route | KSC class.method | Purpose |
+|---|---|---|---|
+| GET | `/api/ksc/status` | — | KSC configuration, transport, operation catalog |
+| GET | `/api/ksc/methods` | — | Machine-readable operation catalog |
+| POST | `/api/ksc/session` | `Session.StartSession` | Open an authenticated session |
+| GET | `/api/ksc/server-info` | `HostGroup.GetStaticInfo` | Static Administration Server attributes |
+| GET | `/api/ksc/groups?limit=` | `HostGroup.FindGroups` + `ChunkAccessor.*` | Enumerate administration groups |
+| GET | `/api/ksc/hosts?limit=` | `HostGroup.FindHosts` + `ChunkAccessor.*` | Enumerate managed hosts |
+| GET | `/api/ksc/licenses?limit=` | `LicenseKeys.EnumKeys` + `ChunkAccessor.*` | Enumerate installed licenses |
+| POST | `/api/ksc/call` | allow-listed read-only methods | Generic method proxy |
+
+The generic `POST /api/ksc/call` proxy only accepts an allow-list of read-only/session methods (see `kscReadOnlyMethods` in `backend/ksc.go`); mutating methods (e.g. `HostGroup.RemoveHost`) are rejected with HTTP 403. Credentials live only in the backend and are sent server-side. Upstream `PxgError` and non-2xx responses are surfaced with their upstream status without leaking the configured token.
+
+### Console vs. Administration Server note
+
+The supplied hosted URL (`https://s405.cloud.kaspersky.com:8080`) is a KES Cloud Web Console. It answers KSC Open API calls with an OAuth-style `401 credentials_required` rather than the KSC `PxgError`/`PxgRetVal` contract, because the documented Open API is served by a KSC Administration Server (default port 13299) with the OpenAPI package installed. The backend therefore reaches upstream successfully and records the upstream authentication failure gracefully; point `KSC_BASE_URL` + `KSC_AUTHORIZATION` at a real Administration Server to retrieve live data.

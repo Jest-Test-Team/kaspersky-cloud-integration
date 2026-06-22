@@ -21,6 +21,12 @@ Base URL: `https://opentip.kaspersky.com/api/v1`; authentication: `X-API-KEY`.
 
 The application also publishes this inventory at `GET /api/integrations/endpoints`.
 
+## 2a. Kaspersky Security Center 15.2 Open API (added)
+
+The backend now also integrates the documented KSC 15.2 Administration Server Open API (HTTP+JSON, `POST /api/v1.0/Class.Method`, default port 13299). Implemented operations: `Session.StartSession`, `HostGroup.GetStaticInfo`/`FindGroups`/`FindHosts`, `LicenseKeys.EnumKeys` (list results drained through `ChunkAccessor`), plus an allow-listed read-only generic call proxy. Credentials (`KSC_AUTHORIZATION` or `KSC_SESSION`) stay server-side. Application routes are documented in `docs/api-endpoints.md`. Reference: https://support.kaspersky.com/help/KSC/15.2/KSCAPI/
+
+The supplied hosted console (`s405.cloud.kaspersky.com:8080`) is a KES Cloud Web Console and answers these calls with `401 credentials_required`; supply a real Administration Server to retrieve live data.
+
 ## 3. Explicitly unavailable surfaces
 
 - Kaspersky Endpoint Security Cloud has no officially published general-purpose customer administration REST contract.

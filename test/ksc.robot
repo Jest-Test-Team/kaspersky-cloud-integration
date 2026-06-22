@@ -68,9 +68,9 @@ Curl JSON
 Curl With Status
     [Arguments]    ${method}    ${path}    ${payload}=${EMPTY}
     IF    '${payload}' == '${EMPTY}'
-        ${result}=    Run Process    curl    -sS    -w    \n%{http_code}    -X    ${method}    ${BACKEND_URL}${path}
+        ${result}=    Run Process    curl    -sS    -w    \n\%{http_code}    -X    ${method}    ${BACKEND_URL}${path}
     ELSE
-        ${result}=    Run Process    curl    -sS    -w    \n%{http_code}    -X    ${method}    ${BACKEND_URL}${path}    -H    Content-Type: application/json    -d    ${payload}
+        ${result}=    Run Process    curl    -sS    -w    \n\%{http_code}    -X    ${method}    ${BACKEND_URL}${path}    -H    Content-Type: application/json    -d    ${payload}
     END
     Should Be Equal As Integers    ${result.rc}    0    ${result.stderr}
     ${lines}=    Split To Lines    ${result.stdout}
