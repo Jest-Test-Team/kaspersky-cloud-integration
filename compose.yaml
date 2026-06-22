@@ -10,8 +10,11 @@ services:
       KASPERSKY_TIP_BASE_URL: "https://opentip.kaspersky.com/api/v1"
       KASPERSKY_TIP_API_KEY: "${KASPERSKY_TIP_API_KEY:-}"
       KSC_BASE_URL: "${KSC_BASE_URL:-https://localhost:13299}"
+      KSC_BEARER_TOKEN: "${KSC_BEARER_TOKEN:-}"
       KSC_AUTHORIZATION: "${KSC_AUTHORIZATION:-}"
       KSC_SESSION: "${KSC_SESSION:-}"
+      KSC_COOKIE: "${KSC_COOKIE:-}"
+      KSC_XSRF_TOKEN: "${KSC_XSRF_TOKEN:-}"
       KSC_VSERVER: "${KSC_VSERVER:-}"
       KSC_INSECURE_SKIP_VERIFY: "${KSC_INSECURE_SKIP_VERIFY:-false}"
     ports:

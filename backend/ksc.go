@@ -158,7 +158,9 @@ func (e *kscError) Error() string {
 }
 
 func kscConfigured() bool {
-	return kscAuthorizationHeader() != "" || strings.TrimSpace(os.Getenv("KSC_SESSION")) != ""
+	return kscAuthorizationHeader() != "" ||
+		strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" ||
+		strings.TrimSpace(os.Getenv("KSC_COOKIE")) != ""
 }
 
 // kscAuthorizationHeader resolves the Authorization header value. The Kaspersky
@@ -180,6 +182,9 @@ func kscAuthorizationHeader() string {
 func kscAuthScheme() string {
 	header := kscAuthorizationHeader()
 	if header == "" {
+		if strings.TrimSpace(os.Getenv("KSC_COOKIE")) != "" {
+			return "Cookie"
+		}
 		if strings.TrimSpace(os.Getenv("KSC_SESSION")) != "" {
 			return "X-KSC-Session"
 		}
@@ -509,6 +514,14 @@ func kscCall(ctx context.Context, class, method string, params map[string]interf
 	}
 	if vserver := strings.TrimSpace(os.Getenv("KSC_VSERVER")); vserver != "" {
 		req.Header.Set("X-KSC-VServer", vserver)
+	}
+	// The Kaspersky Next / ES Cloud console gateway authenticates browser
+	// sessions with a cookie (+ XSRF token) rather than a Bearer header.
+	if cookie := strings.TrimSpace(os.Getenv("KSC_COOKIE")); cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+	if xsrf := strings.TrimSpace(os.Getenv("KSC_XSRF_TOKEN")); xsrf != "" {
+		req.Header.Set("X-XSRF-TOKEN", xsrf)
 	}
 
 	client := newKSCHTTPClient(60 * time.Second)
