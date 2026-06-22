@@ -1,0 +1,14 @@
+.DS_Store
+
+# Go
+backend/bin/
+backend/coverage.out
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Environment
+.env
+*.local

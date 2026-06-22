@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: kaspersky-integration-backend:local
+    environment:
+      BACKEND_ADDR: ":8080"
+      CORS_ALLOW_ORIGIN: "http://localhost:3000"
+      KASPERSKY_TIP_BASE_URL: "https://opentip.kaspersky.com/api/v1"
+      KASPERSKY_TIP_API_KEY: "${KASPERSKY_TIP_API_KEY:-}"
+      KSC_BASE_URL: "${KSC_BASE_URL:-https://s405.cloud.kaspersky.com:8080}"
+      KSC_AUTHORIZATION: "${KSC_AUTHORIZATION:-}"
+      KSC_SESSION: "${KSC_SESSION:-}"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080}"
+    image: kaspersky-integration-frontend:local
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
