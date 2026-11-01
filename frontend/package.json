@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "^16.2.9",
+    "next": "^16.4.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -18,5 +18,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "sharp": "^0.35.5",
+    "nanoid": "^3.3.18",
+    "source-map-js": "^1.2.2",
+    "baseline-browser-mapping": "^2.11.0"
   }
 }
